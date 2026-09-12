@@ -1,0 +1,37 @@
+{
+  "metrics": {
+    "rows": 6005,
+    "features": [
+      "Feed Flowrate (L/min)",
+      "Feed Pressure (psi)",
+      "Feed Conductivity (mS/cm)",
+      "Feed Temperature (C)"
+    ],
+    "target": "Water Flux (LMH)",
+    "test_r2": 0.9946957037896896,
+    "test_mae_lmh": 0.4024096528691544,
+    "training_note": "Prototype model trained only on the uploaded steady-state RO dataset. It predicts expected water flux; it does not directly diagnose biofouling."
+  },
+  "ranges": {
+    "Feed Flowrate (L/min)": {
+      "min": 15.5245,
+      "max": 24.724,
+      "median": 20.44225
+    },
+    "Feed Pressure (psi)": {
+      "min": 496.623,
+      "max": 903.08825,
+      "median": 699.9725000000001
+    },
+    "Feed Conductivity (mS/cm)": {
+      "min": 56.351,
+      "max": 60.19125,
+      "median": 59.55125
+    },
+    "Feed Temperature (C)": {
+      "min": 19.703,
+      "max": 20.153,
+      "median": 19.967
+    }
+  }
+}
