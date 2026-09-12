@@ -5,83 +5,182 @@ import joblib
 import json
 from pathlib import Path
 
-st.set_page_config(page_title="AquaShield Predict", page_icon="💧", layout="centered")
+st.set_page_config(
+    page_title="AquaShield Predict",
+    page_icon="💧",
+    layout="wide"
+)
 
 BASE = Path(__file__).parent
 model = joblib.load(BASE / "model.pkl")
 meta = json.loads((BASE / "metadata.json").read_text(encoding="utf-8"))
 ranges = meta["ranges"]
 
+# -----------------------------
+# Header
+# -----------------------------
 st.title("💧 AquaShield Predict")
-st.caption("RO membrane performance prediction — prototype v1")
+st.caption("AI-assisted RO membrane performance monitoring — Prototype v2")
 
 st.info(
-    "This prototype predicts expected water flux from steady-state RO operating conditions. "
-    "It is not yet a direct biofouling diagnostic."
+    "AquaShield Predict estimates expected RO water flux from operating conditions, "
+    "then compares it with the observed flux to flag abnormal performance deviation. "
+    "A deviation can indicate fouling or another operational issue, but it does not by itself prove biofouling."
 )
 
-def slider_for(label, key, step):
-    r = ranges[key]
-    return st.slider(
-        label,
-        min_value=float(r["min"]),
-        max_value=float(r["max"]),
-        value=float(r["median"]),
-        step=step,
+# -----------------------------
+# Inputs
+# -----------------------------
+st.subheader("1) Operating conditions")
+
+c1, c2 = st.columns(2)
+
+with c1:
+    feed_flow = st.number_input(
+        "Feed flowrate (L/min)",
+        min_value=float(ranges["Feed Flowrate (L/min)"]["min"]),
+        max_value=float(ranges["Feed Flowrate (L/min)"]["max"]),
+        value=float(ranges["Feed Flowrate (L/min)"]["median"]),
+        step=0.01,
     )
 
-flow = slider_for("Feed flowrate (L/min)", "Feed Flowrate (L/min)", 0.01)
-pressure = slider_for("Feed pressure (psi)", "Feed Pressure (psi)", 1.0)
-conductivity = slider_for("Feed conductivity (mS/cm)", "Feed Conductivity (mS/cm)", 0.01)
-temperature = slider_for("Feed temperature (°C)", "Feed Temperature (C)", 0.001)
+    feed_pressure = st.number_input(
+        "Feed pressure (psi)",
+        min_value=float(ranges["Feed Pressure (psi)"]["min"]),
+        max_value=float(ranges["Feed Pressure (psi)"]["max"]),
+        value=float(ranges["Feed Pressure (psi)"]["median"]),
+        step=1.0,
+    )
 
-st.divider()
-observed = st.number_input(
-    "Optional: actual observed water flux (LMH)",
+with c2:
+    feed_cond = st.number_input(
+        "Feed conductivity (mS/cm)",
+        min_value=float(ranges["Feed Conductivity (mS/cm)"]["min"]),
+        max_value=float(ranges["Feed Conductivity (mS/cm)"]["max"]),
+        value=float(ranges["Feed Conductivity (mS/cm)"]["median"]),
+        step=0.01,
+    )
+
+    feed_temp = st.number_input(
+        "Feed temperature (°C)",
+        min_value=float(ranges["Feed Temperature (C)"]["min"]),
+        max_value=float(ranges["Feed Temperature (C)"]["max"]),
+        value=float(ranges["Feed Temperature (C)"]["median"]),
+        step=0.01,
+    )
+
+st.subheader("2) Observed membrane performance")
+
+actual_flux = st.number_input(
+    "Actual observed water flux (LMH)",
     min_value=0.0,
     value=0.0,
     step=0.1,
-    help="Enter 0 if you only want the prediction."
+    help="Enter the measured water flux from the RO system. Leave 0 if you only want the expected baseline."
 )
 
 row = pd.DataFrame([{
-    "Feed Flowrate (L/min)": flow,
-    "Feed Pressure (psi)": pressure,
-    "Feed Conductivity (mS/cm)": conductivity,
-    "Feed Temperature (C)": temperature,
+    "Feed Flowrate (L/min)": feed_flow,
+    "Feed Pressure (psi)": feed_pressure,
+    "Feed Conductivity (mS/cm)": feed_cond,
+    "Feed Temperature (C)": feed_temp,
 }])
+
+st.divider()
 
 if st.button("Analyze membrane", type="primary", use_container_width=True):
     predicted = float(model.predict(row)[0])
 
-    st.metric("Predicted water flux", f"{predicted:.2f} LMH")
+    # Top summary cards
+    st.subheader("3) Membrane performance summary")
+    m1, m2, m3 = st.columns(3)
 
-    if observed > 0:
-        deviation = (observed - predicted) / predicted * 100
-        st.metric("Observed vs. expected", f"{deviation:+.1f}%")
+    with m1:
+        st.metric("Expected water flux", f"{predicted:.2f} LMH")
 
-        if deviation >= -5:
-            st.success("Performance is close to the expected steady-state baseline.")
-        elif deviation >= -10:
-            st.warning("Moderate performance deviation. Monitor the membrane and operating conditions.")
+    if actual_flux > 0:
+        deviation_pct = (actual_flux - predicted) / predicted * 100.0
+
+        with m2:
+            st.metric(
+                "Actual water flux",
+                f"{actual_flux:.2f} LMH",
+                delta=f"{deviation_pct:+.1f}% vs expected"
+            )
+
+        # Status thresholds
+        if deviation_pct >= -5:
+            status = "Normal"
+            status_text = "Performance is close to the expected steady-state baseline."
+            status_box = "success"
+        elif deviation_pct >= -10:
+            status = "Monitor"
+            status_text = "Moderate performance deviation. Continue monitoring and inspect operating conditions."
+            status_box = "warning"
         else:
-            st.error("Large performance deviation. Investigation is recommended.")
+            status = "Investigate"
+            status_text = "Large performance deviation. Inspection is recommended."
+            status_box = "error"
+
+        with m3:
+            st.metric("Membrane status", status)
+
+        if status_box == "success":
+            st.success(status_text)
+        elif status_box == "warning":
+            st.warning(status_text)
+        else:
+            st.error(status_text)
+
+        # Comparison chart
+        chart_df = pd.DataFrame({
+            "Flux type": ["Expected", "Actual"],
+            "Water flux (LMH)": [predicted, actual_flux]
+        }).set_index("Flux type")
+
+        st.subheader("4) Expected vs actual")
+        st.bar_chart(chart_df)
+
+        # Decision-support interpretation
+        st.subheader("5) Decision support")
+        if deviation_pct >= -5:
+            st.write("**Recommended action:** Continue normal monitoring.")
+        elif deviation_pct >= -10:
+            st.write("**Recommended action:** Re-check operating conditions and monitor the trend closely.")
+        else:
+            st.write("**Recommended action:** Investigate the membrane and process conditions. Cleaning or inspection may be needed depending on the root cause.")
 
         st.caption(
-            "A lower-than-expected flux can be caused by fouling, scaling, temperature effects, "
-            "feed changes, or sensor/operational issues. This prototype does not identify the cause."
+            "Important: Lower-than-expected flux may result from fouling, scaling, temperature effects, "
+            "feed changes, hydraulic conditions, or sensor/operational issues. This prototype does not identify the root cause."
         )
 
-    with st.expander("About this prototype"):
+    else:
+        with m2:
+            st.metric("Actual water flux", "Not entered")
+        with m3:
+            st.metric("Membrane status", "Baseline only")
+
+        st.info(
+            "Enter an actual observed flux to compare real membrane performance against the model baseline."
+        )
+
+    # About / technical section
+    with st.expander("About AquaShield Predict v2"):
         st.write(
-            "Model inputs: feed flowrate, feed pressure, feed conductivity, and feed temperature. "
-            "Target: water flux (LMH)."
+            "**Current function:** predicts expected RO water flux from feed flowrate, feed pressure, "
+            "feed conductivity, and feed temperature."
         )
         st.write(
-            f"Model test R²: {meta['metrics']['test_r2']:.3f} | "
-            f"Mean absolute error: {meta['metrics']['test_mae_lmh']:.2f} LMH"
+            f"**Model test R²:** {meta['metrics']['test_r2']:.3f}"
         )
         st.write(
-            "AquaShield future direction: combine this predictive baseline with biofouling-specific "
-            "data and coating experiments to support a future membrane digital twin."
+            f"**Mean absolute error:** {meta['metrics']['test_mae_lmh']:.2f} LMH"
+        )
+        st.write(
+            "**Current limitation:** this is a performance-monitoring prototype, not yet a direct biofouling predictor."
+        )
+        st.write(
+            "**Future direction:** combine operating data with biofouling-specific measurements and AquaShield coating experiments "
+            "to build a more complete membrane digital twin."
         )
